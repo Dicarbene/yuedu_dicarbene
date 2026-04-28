@@ -215,6 +215,11 @@ defineExpose({
   margin-top: 60px;
 }
 
+.reader-block {
+  content-visibility: auto;
+  contain-intrinsic-size: 900px;
+}
+
 .reader-block-head {
   display: grid;
   gap: 8px;

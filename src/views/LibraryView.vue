@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NButton,
@@ -10,7 +10,6 @@ import {
 import {
   BookMarked,
   BookOpen,
-  Loader2,
   Plus,
   RefreshCw,
   Search,
@@ -18,6 +17,7 @@ import {
   Wifi,
 } from 'lucide-vue-next'
 import BookCard from '@/components/BookCard.vue'
+import BookCardSkeleton from '@/components/BookCardSkeleton.vue'
 import ConnectionDrawer from '@/components/ConnectionDrawer.vue'
 import { streamSearchBooks } from '@/lib/api'
 import { LIBRARY_SORTERS } from '@/lib/constants'
@@ -38,7 +38,11 @@ const sortBy = ref<(typeof LIBRARY_SORTERS)[number]['value']>('recent')
 const searchMode = ref<'shelf' | 'online'>('shelf')
 const drawerVisible = ref(false)
 const refreshing = ref(false)
+const loadMoreRef = ref<HTMLElement>()
+const visibleShelfCount = ref(36)
+const visibleSearchCount = ref(36)
 let cancelSearch: (() => void) | null = null
+let loadMoreObserver: IntersectionObserver | null = null
 
 const sortOptions = LIBRARY_SORTERS.map((s) => ({
   value: s.value,
@@ -102,6 +106,49 @@ const recentBook = computed(() => {
   if (!recent) return null
   return legado.shelf.find((book) => book.bookUrl === recent.bookUrl) ?? recent
 })
+const showShelfSkeleton = computed(
+  () =>
+    searchMode.value === 'shelf' &&
+    filteredShelf.value.length === 0 &&
+    (refreshing.value ||
+      legado.connectionStatus === 'idle' ||
+      legado.connectionStatus === 'connecting'),
+)
+const showSearchSkeleton = computed(
+  () =>
+    searchMode.value === 'online' &&
+    legado.searchingOnline &&
+    legado.searchResults.length === 0,
+)
+const visibleShelf = computed(() => filteredShelf.value.slice(0, visibleShelfCount.value))
+const visibleSearchResults = computed(() =>
+  legado.searchResults.slice(0, visibleSearchCount.value),
+)
+const visibleBookCount = computed(() =>
+  searchMode.value === 'shelf'
+    ? visibleShelf.value.length
+    : visibleSearchResults.value.length,
+)
+const totalBookCount = computed(() =>
+  searchMode.value === 'shelf'
+    ? filteredShelf.value.length
+    : legado.searchResults.length,
+)
+const hasMoreBooks = computed(() => visibleBookCount.value < totalBookCount.value)
+
+function revealMoreBooks() {
+  if (searchMode.value === 'shelf') {
+    visibleShelfCount.value = Math.min(
+      visibleShelfCount.value + 36,
+      filteredShelf.value.length,
+    )
+  } else {
+    visibleSearchCount.value = Math.min(
+      visibleSearchCount.value + 36,
+      legado.searchResults.length,
+    )
+  }
+}
 
 async function refreshShelf() {
   refreshing.value = true
@@ -260,6 +307,32 @@ function continueRecent() {
 
 onBeforeUnmount(() => {
   stopSearch()
+  loadMoreObserver?.disconnect()
+  loadMoreObserver = null
+})
+
+onMounted(() => {
+  loadMoreObserver = new IntersectionObserver(
+    entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        revealMoreBooks()
+      }
+    },
+    { rootMargin: '720px 0px' },
+  )
+  if (loadMoreRef.value) {
+    loadMoreObserver.observe(loadMoreRef.value)
+  }
+})
+
+watch(loadMoreRef, (node, previous) => {
+  if (previous) loadMoreObserver?.unobserve(previous)
+  if (node) loadMoreObserver?.observe(node)
+})
+
+watch([query, sortBy, searchMode], () => {
+  visibleShelfCount.value = 36
+  visibleSearchCount.value = 36
 })
 </script>
 
@@ -409,16 +482,25 @@ onBeforeUnmount(() => {
       </section>
 
       <section class="books-grid" v-if="searchMode === 'shelf'">
-        <BookCard
-          v-for="book in filteredShelf"
-          :key="book.bookUrl"
-          :book="book"
-          mode="shelf"
-          @open="openShelfBook"
-          @remove="removeShelfBook"
-        />
+        <template v-if="showShelfSkeleton">
+          <BookCardSkeleton
+            v-for="index in 6"
+            :key="`shelf-skeleton-${index}`"
+          />
+        </template>
 
-        <div v-if="filteredShelf.length === 0" class="empty-state">
+        <template v-else>
+          <BookCard
+            v-for="book in visibleShelf"
+            :key="book.bookUrl"
+            :book="book"
+            mode="shelf"
+            @open="openShelfBook"
+            @remove="removeShelfBook"
+          />
+        </template>
+
+        <div v-if="!showShelfSkeleton && filteredShelf.length === 0" class="empty-state">
           <BookMarked :size="34" aria-hidden="true" />
           <h3>{{ query ? '没有匹配的书' : '书架为空' }}</h3>
           <p>可以从阅读 App 添加书籍，或在这里发起在线搜索。</p>
@@ -432,24 +514,33 @@ onBeforeUnmount(() => {
       </section>
 
       <section class="books-grid" v-else>
-        <BookCard
-          v-for="book in legado.searchResults"
-          :key="book.bookUrl"
-          :book="book"
-          mode="search"
-          @preview="previewSearchBook"
-          @shelf="addSearchBook"
-        />
+        <template v-if="showSearchSkeleton">
+          <BookCardSkeleton
+            v-for="index in 4"
+            :key="`search-skeleton-${index}`"
+          />
+        </template>
 
-        <div
-          v-if="legado.searchingOnline && legado.searchResults.length === 0"
-          class="empty-state"
-        >
-          <Loader2 class="spin" :size="34" aria-hidden="true" />
-          <h3>正在搜索</h3>
-          <p>不同书源返回速度不同，结果会陆续出现。</p>
-        </div>
+        <template v-else>
+          <BookCard
+            v-for="book in visibleSearchResults"
+            :key="book.bookUrl"
+            :book="book"
+            mode="search"
+            @preview="previewSearchBook"
+            @shelf="addSearchBook"
+          />
+        </template>
+
+        <p v-if="showSearchSkeleton" class="loading-note">
+          不同书源返回速度不同，结果会陆续出现。
+        </p>
       </section>
+
+      <div v-if="hasMoreBooks" ref="loadMoreRef" class="load-more-sentinel">
+        <NButton @click="revealMoreBooks">显示更多</NButton>
+        <span>已显示 {{ visibleBookCount }} / {{ totalBookCount }}</span>
+      </div>
     </section>
 
     <ConnectionDrawer
@@ -727,6 +818,23 @@ onBeforeUnmount(() => {
 
 .empty-state p {
   color: var(--text-2);
+}
+
+.loading-note {
+  grid-column: 1 / -1;
+  margin: -2px 0 0;
+  color: var(--text-2);
+  font-size: 0.92rem;
+}
+
+.load-more-sentinel {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 0 6px;
+  color: var(--text-2);
+  font-size: 0.9rem;
 }
 
 .spin {

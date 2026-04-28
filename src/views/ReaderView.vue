@@ -21,7 +21,6 @@ import {
   ArrowLeft,
   ArrowUp,
   Bookmark,
-  BookOpen,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -99,6 +98,8 @@ const themeVars = computed(() => ({
   '--reader-accent': theme.value.accent,
   '--reader-border': theme.value.border,
   '--reader-shadow': theme.value.shadow,
+  '--reader-selection-bg': theme.value.text,
+  '--reader-selection-text': theme.value.page,
 }))
 const currentBook = computed(() => legado.currentBook)
 const currentChapter = computed(() => {
@@ -464,9 +465,17 @@ onBeforeRouteLeave(async () => {
           <span :style="{ width: `${progressPercent}%` }"></span>
         </div>
 
-        <div v-if="loading && loadedChapters.length === 0" class="reader-loading">
-          <BookOpen :size="34" aria-hidden="true" />
-          <p>正在载入正文</p>
+        <div
+          v-if="loading && loadedChapters.length === 0"
+          class="reader-loading-skeleton"
+          aria-label="正在载入正文"
+        >
+          <div class="skeleton-chapter-title"></div>
+          <div class="skeleton-paragraph" v-for="index in 8" :key="index">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
         </div>
 
         <ReaderChapterBlock
@@ -740,6 +749,12 @@ onBeforeRouteLeave(async () => {
   background: var(--reader-shell);
 }
 
+.reader-view ::selection {
+  background: var(--reader-selection-bg);
+  color: var(--reader-selection-text);
+  text-shadow: none;
+}
+
 .reader-topbar {
   position: sticky;
   top: 0;
@@ -854,6 +869,76 @@ onBeforeRouteLeave(async () => {
   gap: 10px;
   min-height: 260px;
   color: var(--reader-muted);
+}
+
+.reader-loading-skeleton {
+  display: grid;
+  gap: 24px;
+  min-height: 420px;
+}
+
+.skeleton-chapter-title,
+.skeleton-paragraph span {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--reader-text) 10%, transparent);
+}
+
+.skeleton-chapter-title::after,
+.skeleton-paragraph span::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--reader-page) 72%, white 28%),
+    transparent
+  );
+  animation: reader-skeleton-sheen 1.25s ease-in-out infinite;
+}
+
+.skeleton-chapter-title {
+  width: min(62%, 420px);
+  height: 34px;
+  margin-bottom: 6px;
+}
+
+.skeleton-paragraph {
+  display: grid;
+  gap: 10px;
+}
+
+.skeleton-paragraph span {
+  display: block;
+  height: 15px;
+}
+
+.skeleton-paragraph span:nth-child(1) {
+  width: 96%;
+}
+
+.skeleton-paragraph span:nth-child(2) {
+  width: 88%;
+}
+
+.skeleton-paragraph span:nth-child(3) {
+  width: 64%;
+}
+
+@keyframes reader-skeleton-sheen {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-chapter-title::after,
+  .skeleton-paragraph span::after {
+    animation: none;
+  }
 }
 
 .reader-loading p,

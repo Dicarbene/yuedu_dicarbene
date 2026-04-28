@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { NButton, NProgress, NTag } from 'naive-ui'
 import { BookOpen, Eye, Plus, Trash2 } from 'lucide-vue-next'
 import { useLegadoStore } from '@/stores/legado'
@@ -25,7 +25,9 @@ const emit = defineEmits<{
 
 const legado = useLegadoStore()
 const isSearchMode = computed(() => props.mode === 'search')
+const coverFailed = ref(false)
 const coverUrl = computed(() => legado.getCoverUrl(props.book.coverUrl))
+const visibleCoverUrl = computed(() => (coverFailed.value ? '' : coverUrl.value))
 const searchTags = computed(() =>
   (props.book.kind ?? '')
     .split(',')
@@ -51,12 +53,25 @@ const footerLine = computed(() => {
   }
   return latest || current || '尚未同步章节标题'
 })
+
+watch(coverUrl, () => {
+  coverFailed.value = false
+})
 </script>
 
 <template>
   <article class="book-card glass-panel">
     <div class="book-cover">
-      <img v-if="coverUrl" :src="coverUrl" :alt="book.name" loading="lazy" />
+      <img
+        v-if="visibleCoverUrl"
+        :src="visibleCoverUrl"
+        :alt="book.name"
+        loading="lazy"
+        decoding="async"
+        fetchpriority="low"
+        referrerpolicy="no-referrer"
+        @error="coverFailed = true"
+      />
       <div v-else class="cover-fallback">
         <span>{{ book.name.slice(0, 1) || '书' }}</span>
       </div>
@@ -150,6 +165,8 @@ const footerLine = computed(() => {
     transform 0.26s ease,
     box-shadow 0.26s ease,
     border-color 0.26s ease;
+  content-visibility: auto;
+  contain-intrinsic-size: 286px;
 }
 
 .book-card:hover {
@@ -287,6 +304,7 @@ const footerLine = computed(() => {
     min-height: auto;
     padding: 16px;
     gap: 16px;
+    contain-intrinsic-size: 232px;
   }
 
   .book-header {
